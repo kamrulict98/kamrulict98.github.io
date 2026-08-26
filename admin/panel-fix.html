@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kamrul Portfolio Admin</title>
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f4f7f9}iframe{display:block;width:100%;height:100%;border:0}</style>
+</head>
+<body>
+<iframe id="adminFrame" src="panel.html?v=20260826" title="Kamrul Portfolio Admin"></iframe>
+<script>
+const owner='kamrulict98',repo='kamrulict98.github.io',branch='main';
+const frame=document.getElementById('adminFrame');
+async function publicJSON(path){
+  const r=await fetch('https://api.github.com/repos/'+owner+'/'+repo+'/contents/'+path+'?ref='+branch,{headers:{Accept:'application/vnd.github+json'}});
+  if(!r.ok)throw new Error('GitHub API '+r.status);
+  return r.json();
+}
+async function publicStats(){
+  try{
+    const [photos,root,index]=await Promise.all([
+      publicJSON('photos'),
+      publicJSON(''),
+      fetch('https://raw.githubusercontent.com/'+owner+'/'+repo+'/'+branch+'/index.html?x='+Date.now()).then(r=>{if(!r.ok)throw new Error('index '+r.status);return r.text()})
+    ]);
+    const photoCount=Array.isArray(photos)?photos.filter(x=>x.type==='file'&&/\.(jpe?g|png|webp|gif)$/i.test(x.name)).length:0;
+    const pdfCount=Array.isArray(root)?root.filter(x=>x.type==='file'&&/\.pdf$/i.test(x.name)).length:0;
+    const sectionCount=(index.match(/<section\b[^>]*>/gi)||[]).length;
+    const size=Math.max(1,Math.round(new Blob([index]).size/1024));
+    return {photoCount,pdfCount,sectionCount,size};
+  }catch(e){return null}
+}
+function patchStats(s){
+  try{
+    const d=frame.contentDocument;
+    if(!d)return;
+    const set=(id,v)=>{const el=d.getElementById(id);if(el)el.textContent=String(v)};
+    set('statPhotos',s.photoCount);
+    set('statSections',s.sectionCount);
+    set('statCV',s.pdfCount);
+    set('statSize',s.size+' KB');
+    const health=d.getElementById('health');
+    if(health)health.textContent='Live repository detected: '+s.photoCount+' photos · '+s.pdfCount+' CV/PDF · '+s.sectionCount+' sections.';
+  }catch(e){}
+}
+async function refresh(){const s=await publicStats();if(s)patchStats(s)}
+frame.addEventListener('load',()=>{refresh();setTimeout(refresh,1200);setTimeout(refresh,3500)});
+setInterval(refresh,15000);
+</script>
+</body>
+</html>
