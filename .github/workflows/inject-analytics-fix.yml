@@ -1,0 +1,35 @@
+name: Load analytics button fix
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  inject:
+    if: ${{ !contains(github.event.head_commit.message, '[analytics-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inject analytics fix script
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          p=Path('admin/dashboard.html')
+          text=p.read_text(encoding='utf-8')
+          tag='<script src="analytics-dashboard-fix.js?v=20260828"></script>'
+          if tag not in text:
+              marker='</body>'
+              if marker not in text:
+                  raise SystemExit('dashboard.html has no closing body tag')
+              text=text.replace(marker,tag+'\n'+marker,1)
+              p.write_text(text,encoding='utf-8')
+          PY
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add admin/dashboard.html
+          git commit -m "[analytics-fix] Load robust analytics button handlers" || exit 0
+          git push
