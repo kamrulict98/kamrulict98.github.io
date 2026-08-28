@@ -7,7 +7,7 @@
 <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f4f7f9}iframe{display:block;width:100%;height:100%;border:0}</style>
 </head>
 <body>
-<iframe id="adminFrame" src="panel.html?v=20260826" title="Kamrul Portfolio Admin"></iframe>
+<iframe id="adminFrame" src="panel.html?v=20260828" title="Kamrul Portfolio Admin"></iframe>
 <script>
 const owner='kamrulict98',repo='kamrulict98.github.io',branch='main';
 const frame=document.getElementById('adminFrame');
@@ -43,8 +43,19 @@ function patchStats(s){
     if(health)health.textContent='Live repository detected: '+s.photoCount+' photos · '+s.pdfCount+' CV/PDF · '+s.sectionCount+' sections.';
   }catch(e){}
 }
+function injectFixes(){
+  try{
+    const d=frame.contentDocument;
+    if(!d||d.getElementById('buttonFixesScript'))return;
+    const s=d.createElement('script');
+    s.id='buttonFixesScript';
+    s.src='button-fixes.js?v=20260828';
+    s.onload=()=>{try{if(typeof frame.contentWindow.initAdminButtonFixes==='function')frame.contentWindow.initAdminButtonFixes()}catch(e){}};
+    d.body.appendChild(s);
+  }catch(e){}
+}
 async function refresh(){const s=await publicStats();if(s)patchStats(s)}
-frame.addEventListener('load',()=>{refresh();setTimeout(refresh,1200);setTimeout(refresh,3500)});
+frame.addEventListener('load',()=>{injectFixes();refresh();setTimeout(()=>{injectFixes();refresh()},1200);setTimeout(()=>{injectFixes();refresh()},3500)});
 setInterval(refresh,15000);
 </script>
 </body>
