@@ -1,0 +1,43 @@
+name: Fix Analytics Dashboard
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  fix:
+    if: ${{ !contains(github.event.head_commit.message, '[analytics-fix]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch dashboard analytics
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('admin/dashboard.html')
+          s=p.read_text(encoding='utf-8')
+          start=s.find("const GC_STORE='kamrul.goatcounter';")
+          end=s.find('\n\n<section id="backup"', start)
+          if start < 0 or end < 0:
+              raise SystemExit('Analytics block not found')
+          block='''const GC_STORE='kamrul.goatcounter';
+function gcCfg(){try{return JSON.parse(localStorage.getItem(GC_STORE)||'{}')}catch{return {}}}
+function gcSave(){const code=$('gcCode').value.trim().replace(/^https?:\\/\\//i,'').split('/')[0].replace(/\\.goatcounter\\.com.*$/i,'').toLowerCase();const token=$('gcToken').value.trim();if(!code||!token){$('gcStatus').textContent='Enter GoatCounter site code and API token.';return null}const c={code,token};localStorage.setItem(GC_STORE,JSON.stringify(c));$('gcCode').value=code;$('gcToken').value=token;$('gcStatus').textContent='Saved successfully. Token stored in this browser.';return c}
+function gcBase(c){return 'https://'+c.code+'.goatcounter.com/api/v0'}
+async function gcApi(path,c){const r=await fetch(gcBase(c)+path,{method:'GET',headers:{Authorization:'Bearer '+c.token,Accept:'application/json'},cache:'no-store'});const text=await r.text();let d={};try{d=text?JSON.parse(text):{}}catch{}if(!r.ok)throw Error(d.error||d.message||('GoatCounter HTTP '+r.status));return d}
+function gcConnect(){gcSave()}
+async function gcRefresh(){const c=gcCfg();if(!c.code||!c.token){$('gcStatus').textContent='Enter GoatCounter site code and API token first.';return}try{$('gcStatus').textContent='Loading analytics…';const end=new Date();const start=new Date(end.getTime()-30*86400000);const enc=d=>encodeURIComponent(d.toISOString());const [total,hits]=await Promise.all([gcApi('/stats/total?start='+enc(start)+'&end='+enc(end),c),gcApi('/stats/hits?start='+enc(start)+'&end='+enc(end)+'&limit=100',c)]);const rows=hits.hits||[];let views=0,cv=0;rows.forEach(x=>{const n=Number(x.count||0);if(x.event){if(String(x.path||'').replace(/^\\//,'')==='cv-download')cv+=n}else views+=n});$('gcVisitors').textContent=String(total.total??total.count??0);$('gcViews').textContent=String(views);$('gcCv').textContent=String(cv);$('gcPages').textContent=String(rows.length);$('gcRows').innerHTML=rows.slice(0,30).map(x=>'<tr><td>'+gcSafe(x.event?'Event: '+(x.path||''):x.path||'/')+'</td><td>'+gcSafe(x.count||0)+'</td></tr>').join('')||'<tr><td colspan="2" class="small">No statistics yet.</td></tr>';$('gcStatus').textContent='Connected • updated '+new Date().toLocaleString()}catch(e){$('gcStatus').textContent='Refresh failed: '+e.message}}
+function gcSafe(v){return String(v??'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]))}
+function gcClear(){localStorage.removeItem(GC_STORE);sessionStorage.removeItem(GC_STORE);$('gcCode').value='';$('gcToken').value='';$('gcVisitors').textContent='—';$('gcViews').textContent='—';$('gcCv').textContent='—';$('gcPages').textContent='—';$('gcRows').innerHTML='<tr><td colspan="2" class="small">Connect GoatCounter to load statistics.</td></tr>';$('gcStatus').textContent='Token cleared.'}
+function gcOpen(){const c=gcCfg();window.open(c.code?'https://'+c.code+'.goatcounter.com':'https://www.goatcounter.com','_blank','noopener,noreferrer')}
+(function(){const c=gcCfg();if(c.code)$('gcCode').value=c.code;if(c.token)$('gcToken').value=c.token})();'''
+          p.write_text(s[:start]+block+s[end:],encoding='utf-8')
+          PY
+      - name: Commit patch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add admin/dashboard.html
+          git diff --cached --quiet && exit 0
+          git commit -m '[analytics-fix] remove failing auto-connect and fix save'
+          git push
