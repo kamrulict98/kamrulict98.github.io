@@ -1,62 +1,322 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kamrul Portfolio Admin</title>
-<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f4f7f9}iframe{display:block;width:100%;height:100%;border:0}</style>
+<title>Admin Panel</title>
 </head>
+
 <body>
-<iframe id="adminFrame" src="panel.html?v=20260828" title="Kamrul Portfolio Admin"></iframe>
+
+<iframe
+  id="adminFrame"
+  src="panel.html"
+  style="width:100%;height:100vh;border:0">
+</iframe>
+
 <script>
-const owner='kamrulict98',repo='kamrulict98.github.io',branch='main';
-const frame=document.getElementById('adminFrame');
-async function publicJSON(path){
-  const r=await fetch('https://api.github.com/repos/'+owner+'/'+repo+'/contents/'+path+'?ref='+branch,{headers:{Accept:'application/vnd.github+json'}});
-  if(!r.ok)throw new Error('GitHub API '+r.status);
-  return r.json();
-}
-async function publicStats(){
-  try{
-    const [photos,root,index]=await Promise.all([
-      publicJSON('photos'),
-      publicJSON(''),
-      fetch('https://raw.githubusercontent.com/'+owner+'/'+repo+'/'+branch+'/index.html?x='+Date.now()).then(r=>{if(!r.ok)throw new Error('index '+r.status);return r.text()})
-    ]);
-    const photoCount=Array.isArray(photos)?photos.filter(x=>x.type==='file'&&/\.(jpe?g|png|webp|gif)$/i.test(x.name)).length:0;
-    const pdfCount=Array.isArray(root)?root.filter(x=>x.type==='file'&&/\.pdf$/i.test(x.name)).length:0;
-    const sectionCount=(index.match(/<section\b[^>]*>/gi)||[]).length;
-    const size=Math.max(1,Math.round(new Blob([index]).size/1024));
-    return {photoCount,pdfCount,sectionCount,size};
-  }catch(e){return null}
-}
-function patchStats(s){
-  try{
-    const d=frame.contentDocument;
-    if(!d)return;
-    const set=(id,v)=>{const el=d.getElementById(id);if(el)el.textContent=String(v)};
-    set('statPhotos',s.photoCount);
-    set('statSections',s.sectionCount);
-    set('statCV',s.pdfCount);
-    set('statSize',s.size+' KB');
-    const health=d.getElementById('health');
-    if(health)health.textContent='Live repository detected: '+s.photoCount+' photos · '+s.pdfCount+' CV/PDF · '+s.sectionCount+' sections.';
-  }catch(e){}
-}
-function injectFixes(){
-  try{
-    const d=frame.contentDocument;
-    if(!d||d.getElementById('buttonFixesScript'))return;
-    const s=d.createElement('script');
-    s.id='buttonFixesScript';
-    s.src='button-fixes.js?v=20260828';
-    s.onload=()=>{try{if(typeof frame.contentWindow.initAdminButtonFixes==='function')frame.contentWindow.initAdminButtonFixes()}catch(e){}};
-    d.body.appendChild(s);
-  }catch(e){}
-}
-async function refresh(){const s=await publicStats();if(s)patchStats(s)}
-frame.addEventListener('load',()=>{injectFixes();refresh();setTimeout(()=>{injectFixes();refresh()},1200);setTimeout(()=>{injectFixes();refresh()},3500)});
-setInterval(refresh,15000);
+(function () {
+  "use strict";
+
+  const OWNER = "kamrulict98";
+  const DEFAULT_REPO = "kamrulict98.github.io";
+  const BRANCH = "main";
+  const frame = document.getElementById("adminFrame");
+
+  function getDoc() {
+    try {
+      return frame.contentDocument;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function findInput(doc, type, keywords) {
+    const list = Array.from(doc.querySelectorAll("input"));
+
+    return list.find(function (el) {
+      const meta = (
+        (el.id || "") + " " +
+        (el.name || "") + " " +
+        (el.placeholder || "") + " " +
+        (el.getAttribute("aria-label") || "")
+      ).toLowerCase();
+
+      return (!type || el.type === type) &&
+        keywords.some(function (k) {
+          return meta.includes(k);
+        });
+    }) || null;
+  }
+
+  function getFields(doc) {
+    const token =
+      doc.getElementById("token") ||
+      doc.getElementById("githubToken") ||
+      doc.getElementById("ghToken") ||
+      findInput(doc, "password", [
+        "token",
+        "github",
+        "personal access"
+      ]);
+
+    const repo =
+      doc.getElementById("repo") ||
+      doc.getElementById("repository") ||
+      doc.getElementById("githubRepo") ||
+      findInput(doc, null, [
+        "repository",
+        "repo"
+      ]);
+
+    return {
+      token: token,
+      repo: repo
+    };
+  }
+
+  function showMessage(doc, text, error) {
+    const target =
+      doc.getElementById("loginStatus") ||
+      doc.getElementById("status") ||
+      doc.querySelector(".login-card .small") ||
+      doc.querySelector(".login-card .status") ||
+      doc.querySelector(".login-card");
+
+    if (!target) return;
+
+    target.textContent = text;
+    target.style.color = error ? "#a9362b" : "#08796f";
+  }
+
+  function normalizeRepo(value) {
+    let repo = (value || "").trim();
+
+    repo = repo.replace(
+      /^https?:\/\/github\.com\//i,
+      ""
+    );
+
+    repo = repo.replace(
+      /^github\.com\//i,
+      ""
+    );
+
+    repo = repo.replace(/\/+$/, "");
+
+    return repo || OWNER + "/" + DEFAULT_REPO;
+  }
+
+  async function connect() {
+
+    const doc = getDoc();
+
+    if (!doc) return;
+
+    const fields = getFields(doc);
+
+    const token =
+      fields.token &&
+      fields.token.value.trim();
+
+    const repo =
+      normalizeRepo(
+        fields.repo && fields.repo.value
+      );
+
+    if (!token) {
+
+      showMessage(
+        doc,
+        "Enter your GitHub Personal Access Token.",
+        true
+      );
+
+      if (fields.token) {
+        fields.token.focus();
+      }
+
+      return;
+    }
+
+    const parts = repo.split("/");
+
+    if (
+      parts.length !== 2 ||
+      !parts[0] ||
+      !parts[1]
+    ) {
+
+      showMessage(
+        doc,
+        "Repository must be in owner/repository format.",
+        true
+      );
+
+      if (fields.repo) {
+        fields.repo.focus();
+      }
+
+      return;
+    }
+
+    const owner = parts[0];
+    const repository = parts[1];
+
+    showMessage(
+      doc,
+      "Connecting to GitHub...",
+      false
+    );
+
+    try {
+
+      const response = await fetch(
+        "https://api.github.com/repos/" +
+        encodeURIComponent(owner) +
+        "/" +
+        encodeURIComponent(repository),
+        {
+          method: "GET",
+
+          headers: {
+            "Accept":
+              "application/vnd.github+json",
+
+            "Authorization":
+              "Bearer " + token,
+
+            "X-GitHub-Api-Version":
+              "2022-11-28"
+          },
+
+          cache: "no-store"
+        }
+      );
+
+      let data = {};
+
+      try {
+        data = await response.json();
+      } catch (e) {}
+
+      if (!response.ok) {
+
+        throw new Error(
+          data.message ||
+          "GitHub API error " +
+          response.status
+        );
+      }
+
+      sessionStorage.setItem(
+        "k_token",
+        token
+      );
+
+      sessionStorage.setItem(
+        "k_repo",
+        owner + "/" + repository
+      );
+
+      localStorage.setItem(
+        "k_repo",
+        owner + "/" + repository
+      );
+
+      showMessage(
+        doc,
+        "Connected successfully. Loading admin panel...",
+        false
+      );
+
+      setTimeout(function () {
+
+        frame.src =
+          "panel.html?v=" +
+          Date.now();
+
+      }, 300);
+
+    } catch (error) {
+
+      showMessage(
+        doc,
+        "GitHub connection failed: " +
+        (error.message || error),
+        true
+      );
+    }
+  }
+
+  function install() {
+
+    const doc = getDoc();
+
+    if (!doc) return;
+
+    try {
+      frame.contentWindow.connect = connect;
+    } catch (e) {}
+
+    const buttons =
+      Array.from(
+        doc.querySelectorAll(
+          "button, input[type='button'], input[type='submit']"
+        )
+      );
+
+    buttons
+      .filter(function (button) {
+
+        return /^connect$/i.test(
+          (
+            button.textContent ||
+            button.value ||
+            ""
+          ).trim()
+        );
+
+      })
+      .forEach(function (button) {
+
+        if (
+          button.dataset.kiConnectFixed === "1"
+        ) {
+          return;
+        }
+
+        button.dataset.kiConnectFixed = "1";
+
+        button.addEventListener(
+          "click",
+          function (event) {
+
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            connect();
+
+          },
+          true
+        );
+
+      });
+  }
+
+  frame.addEventListener(
+    "load",
+    function () {
+
+      setTimeout(install, 50);
+      setTimeout(install, 500);
+      setTimeout(install, 1500);
+
+    }
+  );
+
+})();
 </script>
+
 </body>
 </html>
